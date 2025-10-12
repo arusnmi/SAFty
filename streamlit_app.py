@@ -14,16 +14,36 @@ st.set_page_config(page_title="PPE Compliance Detection", layout="wide")
 def load_model():
     try:
         import torch
-        # Add safe globals for model loading
-        torch.serialization.add_safe_globals(['ultralytics.nn.tasks.DetectionModel'])
-        model_path = 'best.pt'
+        torch.backends.cudnn.enabled = False  # Disable CUDNN
+        
+        # Add all potentially needed safe globals
+        torch.serialization.add_safe_globals([
+            'ultralytics.nn.tasks.DetectionModel',
+            'ultralytics.models.yolo.detect.DetectionModel',
+            'ultralytics.engine.model'
+        ])
+        
+        model_path = os.path.abspath('best.pt')
         if not os.path.exists(model_path):
-            st.error(f"Model file not found at {model_path}")
+            st.error(f"Model file not found at: {model_path}")
             return None
-        return YOLO(model_path)
+            
+        # Load model with explicit settings
+        model = YOLO(model_path, task='detect')
+        st.success(f"Model loaded successfully from: {model_path}")
+        return model
+        
     except Exception as e:
-        st.error(f"Error loading model")
+        st.error(f"Error loading model: {str(e)}")
+        st.write("Python working directory:", os.getcwd())
+        st.write("Model path tried:", os.path.abspath('best.pt'))
         return None
+
+# Clear any existing cache
+try:
+    load_model.clear()
+except:
+    pass
 
 model = load_model()
 
