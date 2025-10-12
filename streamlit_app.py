@@ -4,6 +4,7 @@ import numpy as np
 from ultralytics import YOLO
 import plotly.express as px
 import pandas as pd
+import os
 
 # Page config
 st.set_page_config(page_title="PPE Compliance Detection", layout="wide")
@@ -11,9 +12,25 @@ st.set_page_config(page_title="PPE Compliance Detection", layout="wide")
 # Load the model
 @st.cache_resource
 def load_model():
-    return YOLO('best.pt')  # Update with your model path
+    try:
+        import torch
+        # Add safe globals for model loading
+        torch.serialization.add_safe_globals(['ultralytics.nn.tasks.DetectionModel'])
+        model_path = 'best.pt'
+        if not os.path.exists(model_path):
+            st.error(f"Model file not found at {model_path}")
+            return None
+        return YOLO(model_path)
+    except Exception as e:
+        st.error(f"Error loading model: {str(e)}")
+        return None
 
 model = load_model()
+
+# Modify the main content section to check if model loaded successfully
+if model is None:
+    st.error("Failed to load the model. Please ensure the model file exists and is valid.")
+    st.stop()
 
 # Sidebar
 st.sidebar.title("PPE Compliance Detection")
