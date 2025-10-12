@@ -1,0 +1,6 @@
+
+train: C:\Users\warty\OneDrive\Desktop\Python_projects\YOLO-formative\Train\images  # relative to path
+val: C:\Users\warty\OneDrive\Desktop\Python_projects\YOLO-formative\Validation\images  # relative to path
+
+nc: 10  # number of classes
+names: ["Hardhat", "Mask", "NO-Hardhat", "NO-Mask", "NO-Safety Vest", "Person", "Safety Cone", "Safety Vest", "machinery", "vehicle"]
