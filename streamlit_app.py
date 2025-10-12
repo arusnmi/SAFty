@@ -1,66 +1,65 @@
+import os
+from pathlib import Path
+
+# CRITICAL FIX: Set environment variables BEFORE any OpenCV imports
+os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
 import streamlit as st
 import cv2
+
+# CRITICAL FIX: Patch cv2.imshow for headless environment
+cv2.imshow = lambda *args: None
+cv2.waitKey = lambda *args: None
+cv2.destroyAllWindows = lambda *args: None
+
 import numpy as np
 from ultralytics import YOLO
 import plotly.express as px
 import pandas as pd
-import os
+
+# Get the absolute path to the root of the deployed app
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "Safty.pt"
 
 # Page config
 st.set_page_config(page_title="PPE Compliance Detection", layout="wide")
 
-# Load the model
+# Load the model using proven loading pattern
 @st.cache_resource
 def load_model():
+    """Load the YOLO model using the corrected absolute path."""
     try:
         import torch
-        import torch.nn as nn
-        
         # Disable CUDNN and set device
         torch.backends.cudnn.enabled = False
         device = torch.device('cpu')
         
-        # Configure safe loading
-        torch.serialization.add_safe_globals([
-            'ultralytics.nn.tasks.DetectionModel',
-            'ultralytics.models.yolo.detect.DetectionModel',
-            'ultralytics.engine.model',
-            'ultralytics.engine.model.Model',
-            'ultralytics.utils.torch_utils'
-        ])
-        
-        model_path = os.path.join(os.getcwd(), 'Safty.pt')
-        if not os.path.exists(model_path):
-            st.error(f"Model file not found at: {model_path}")
-            return None
-        
-        # Load model with weights_only=False
-        model = YOLO(
-            model_path,
-            task='detect',
-            device=device
-        )
-        
-        st.success(f"Model loaded successfully from: {model_path}")
+        model = YOLO(str(MODEL_PATH))
+        st.success(f"Model loaded successfully from: {MODEL_PATH}")
         return model
-        
     except Exception as e:
-        st.error(f"Detailed error: {type(e).__name__}: {str(e)}")
+        st.error(f"Error loading model: {str(e)}")
         st.write("Python working directory:", os.getcwd())
-        st.write("Model path tried:", os.path.abspath('Safty.pt'))
-        st.write("Available files:", os.listdir(os.getcwd()))
+        st.write("Model path tried:", MODEL_PATH)
+        st.write("Available files:", os.listdir(BASE_DIR))
         return None
 
 # Clear cache before loading
 if 'model' in st.session_state:
     del st.session_state['model']
     
-model = load_model()
+with st.spinner("Loading AI model..."):
+    model = load_model()
 
-# Modify the main content section to check if model loaded successfully
+# Check if model loaded successfully
 if model is None:
-    st.error("Failed to load the model. Please ensure the model file exists and is valid.")
+    st.error("Application setup failed. Check logs for model loading errors.")
     st.stop()
+
+# Initialize session state for statistics
+if 'detection_count' not in st.session_state:
+    st.session_state['detection_count'] = 0
 
 # Sidebar
 st.sidebar.title("PPE Compliance Detection")
@@ -71,11 +70,18 @@ st.title("Worker Safety Compliance Detection")
 
 if uploaded_file is not None:
     # Read and process image
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    image = cv2.imdecode(file_bytes, 1)
+    image = Image.open(uploaded_file)
+    img_array = np.array(image)
     
-    # Run inference
-    results = model(image)
+    # Convert RGB to BGR for OpenCV
+    if len(img_array.shape) == 3 and img_array.shape[2] == 3:
+        img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+    else:
+        img_bgr = img_array
+    
+    # Run inference with spinner
+    with st.spinner("🔍 Analyzing image..."):
+        results = model(img_bgr, verbose=False, conf=0.75, device='cpu')
     
     # Process results
     compliant = 0
@@ -83,15 +89,18 @@ if uploaded_file is not None:
     non_compliant = 0
     total_workers = len(results[0].boxes)
     
-    # Count compliance categories (adjust based on your model's classes)
+    # Count compliance categories
     for box in results[0].boxes:
         class_id = int(box.cls[0].item())
-        if class_id == 0:  # Assuming 0 is compliant
+        if class_id == 0:  # Compliant
             compliant += 1
-        elif class_id == 1:  # Assuming 1 is partial
+        elif class_id == 1:  # Partial
             partial_compliant += 1
-        else:  # Assuming 2 is non-compliant
+        else:  # Non-compliant
             non_compliant += 1
+    
+    # Increment detection count
+    st.session_state['detection_count'] += 1
     
     # Display results
     col1, col2 = st.columns(2)
@@ -117,7 +126,7 @@ if uploaded_file is not None:
                      title='Compliance Distribution')
         st.plotly_chart(fig)
         
-        # Alert System
+        # Alert System with improved visibility
         if non_compliant > 0:
             st.error(f"⚠️ Alert: {non_compliant} workers detected without proper PPE!")
         
@@ -128,8 +137,13 @@ if uploaded_file is not None:
             st.success("✅ All workers are compliant with PPE regulations")
 
 else:
-    st.info("Please upload an image to begin detection")
+    st.info("👆 Please upload an image to begin detection")
+
+# Show statistics in sidebar
+if st.session_state['detection_count'] > 0:
+    st.sidebar.metric("Total Detections", st.session_state['detection_count'])
 
 # Footer
 st.markdown("---")
-st.caption("PPE Compliance Detection System - Powered by YOLO")
+st.sidebar.markdown("### About")
+st.sidebar.info("This app uses YOLO AI to detect and monitor PPE compliance in workplace safety scenarios.")
