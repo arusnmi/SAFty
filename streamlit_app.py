@@ -16,13 +16,13 @@ def load_model():
         import torch
         # Add safe globals for model loading
         torch.serialization.add_safe_globals(['ultralytics.nn.tasks.DetectionModel'])
-        model_path = 'best.pt'
+        model_path = 'C:\Users\warty\OneDrive\Desktop\Python_projects\SAFty\best.pt'
         if not os.path.exists(model_path):
             st.error(f"Model file not found at {model_path}")
             return None
         return YOLO(model_path)
     except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
+        st.error(f"Error loading model")
         return None
 
 model = load_model()
