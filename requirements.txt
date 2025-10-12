@@ -4,3 +4,4 @@ numpy>=1.24.0
 ultralytics==8.0.196
 plotly==5.17.0
 pandas>=2.0.0
+python-multipart>=0.0.6
