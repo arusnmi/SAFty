@@ -23,7 +23,7 @@ def load_model():
             'ultralytics.engine.model'
         ])
         
-        model_path = os.path.abspath('best.pt')
+        model_path = os.path.abspath('Safty.pt')
         if not os.path.exists(model_path):
             st.error(f"Model file not found at: {model_path}")
             return None
@@ -36,7 +36,7 @@ def load_model():
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
         st.write("Python working directory:", os.getcwd())
-        st.write("Model path tried:", os.path.abspath('best.pt'))
+        st.write("Model path tried:", os.path.abspath('Safty.pt'))
         return None
 
 # Clear any existing cache
