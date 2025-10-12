@@ -14,37 +14,47 @@ st.set_page_config(page_title="PPE Compliance Detection", layout="wide")
 def load_model():
     try:
         import torch
-        torch.backends.cudnn.enabled = False  # Disable CUDNN
+        import torch.nn as nn
         
-        # Add all potentially needed safe globals
+        # Disable CUDNN and set device
+        torch.backends.cudnn.enabled = False
+        device = torch.device('cpu')
+        
+        # Configure safe loading
         torch.serialization.add_safe_globals([
             'ultralytics.nn.tasks.DetectionModel',
             'ultralytics.models.yolo.detect.DetectionModel',
-            'ultralytics.engine.model'
+            'ultralytics.engine.model',
+            'ultralytics.engine.model.Model',
+            'ultralytics.utils.torch_utils'
         ])
         
-        model_path = os.path.abspath('Safty.pt')
+        model_path = os.path.join(os.getcwd(), 'Safty.pt')
         if not os.path.exists(model_path):
             st.error(f"Model file not found at: {model_path}")
             return None
-            
-        # Load model with explicit settings
-        model = YOLO(model_path, task='detect')
+        
+        # Load model with weights_only=False
+        model = YOLO(
+            model_path,
+            task='detect',
+            device=device
+        )
+        
         st.success(f"Model loaded successfully from: {model_path}")
         return model
         
     except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
+        st.error(f"Detailed error: {type(e).__name__}: {str(e)}")
         st.write("Python working directory:", os.getcwd())
         st.write("Model path tried:", os.path.abspath('Safty.pt'))
+        st.write("Available files:", os.listdir(os.getcwd()))
         return None
 
-# Clear any existing cache
-try:
-    load_model.clear()
-except:
-    pass
-
+# Clear cache before loading
+if 'model' in st.session_state:
+    del st.session_state['model']
+    
 model = load_model()
 
 # Modify the main content section to check if model loaded successfully
