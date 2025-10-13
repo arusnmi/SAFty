@@ -31,6 +31,7 @@ def load_yolo_model(path):
     """Load the YOLO model using the corrected absolute path."""
     try:
         import torch
+        import sys
         
         # Add required safe globals before model loading
         torch.serialization.add_safe_globals([
@@ -41,17 +42,23 @@ def load_yolo_model(path):
             'ultralytics.models.yolo.detect'
         ])
         
-        # Disable CUDNN and set device
+        # Configure torch settings
         torch.backends.cudnn.enabled = False
         device = torch.device('cpu')
-        
-        # Configure torch loading settings
         torch.set_default_dtype(torch.float32)
         
-        # Load model with explicit settings
-        model = YOLO(str(path))
+        # Handle PyTorch path registration
+        if hasattr(torch, 'classes') and not hasattr(torch.classes, '_path'):
+            setattr(torch.classes, '_path', type('_path', (), {'__path__': []}))
+        
+        # Load model with weights_only=False
+        model = YOLO(str(path), task='detect')
         model.to(device)
         
+        # Verify model loaded correctly
+        if model is None or not hasattr(model, 'predict'):
+            raise RuntimeError("Model failed to load properly")
+            
         st.success(f"Model loaded successfully from: {path}")
         return model
         
@@ -60,6 +67,9 @@ def load_yolo_model(path):
         st.write("Python working directory:", os.getcwd())
         st.write("Model path tried:", path)
         st.write("Available files:", os.listdir(BASE_DIR))
+        st.write("Python version:", sys.version)
+        st.write("PyTorch version:", torch.__version__)
+        st.write("Ultralytics version:", YOLO.__version__)
         return None
 
 # Load the model using the fixed path
