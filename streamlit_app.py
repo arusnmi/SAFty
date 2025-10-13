@@ -31,14 +31,32 @@ def load_yolo_model(path):
     """Load the YOLO model using the corrected absolute path."""
     try:
         import torch
+        
+        # Add required safe globals before model loading
+        torch.serialization.add_safe_globals([
+            'ultralytics.nn.tasks.DetectionModel',
+            'ultralytics.models.yolo.detect.DetectionModel',
+            'ultralytics.engine.model',
+            'ultralytics.nn.tasks',
+            'ultralytics.models.yolo.detect'
+        ])
+        
+        # Disable CUDNN and set device
         torch.backends.cudnn.enabled = False
         device = torch.device('cpu')
         
+        # Configure torch loading settings
+        torch.set_default_dtype(torch.float32)
+        
+        # Load model with explicit settings
         model = YOLO(str(path))
+        model.to(device)
+        
         st.success(f"Model loaded successfully from: {path}")
         return model
+        
     except Exception as e:
-        st.error(f"Error loading model: {e}")
+        st.error(f"Error loading model: {str(e)}")
         st.write("Python working directory:", os.getcwd())
         st.write("Model path tried:", path)
         st.write("Available files:", os.listdir(BASE_DIR))
