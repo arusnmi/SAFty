@@ -31,44 +31,41 @@ def load_yolo_model(path):
         import torch
         import sys
         from ultralytics import __version__ as ultralytics_version
-        from pathlib import Path
         
         # Configure torch settings
         torch.backends.cudnn.enabled = False
         device = torch.device('cpu')
         
-        # Register safe classes for model loading
-        safe_classes = [
-            'ultralytics.nn.tasks.DetectionModel',
-            'ultralytics.models.yolo.detect.DetectionModel',
-            'ultralytics.engine.model',
-            'ultralytics.nn.tasks',
-            'ultralytics.models.yolo.detect',
-            'ultralytics.yolo.engine.model'
-        ]
+        # Define all required model classes
+        MODEL_CLASSES = {
+            'ultralytics.nn.tasks.DetectionModel': 'DetectionModel',
+            'ultralytics.models.yolo.detect.DetectionModel': 'DetectionModel',
+            'ultralytics.engine.model': 'Model',
+            'ultralytics.nn.tasks': 'BaseModel',
+            'ultralytics.models.yolo.detect': 'DetectionModel'
+        }
+
+        # Register all model classes as safe globals
+        for module_path, class_name in MODEL_CLASSES.items():
+            try:
+                module_parts = module_path.split('.')
+                module = __import__(module_parts[0])
+                for part in module_parts[1:]:
+                    module = getattr(module, part)
+                torch.serialization.add_safe_globals([module])
+            except (ImportError, AttributeError):
+                continue
+
+        # Force weights_only to False for older model compatibility
+        torch.set_default_dtype(torch.float32)
+        model = YOLO(str(path), task='detect')
         
-        for cls in safe_classes:
-            torch.serialization.add_safe_globals([cls])
-        
-        # Handle PyTorch path registration
-        if hasattr(torch, 'classes') and not hasattr(torch.classes, '_path'):
-            setattr(torch.classes, '_path', type('_path', (), {'__path__': []}))
-        
-        # Ensure path is properly formatted
-        model_path = Path(path).resolve()
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model file not found: {model_path}")
-            
-        # Load model with explicit settings and weights_only=False
-        with torch.serialization.safe_globals(safe_classes):
-            model = YOLO(str(model_path), task='detect')
-            model.to(device)
-        
-        # Verify model
+        # Move model to device and verify
+        model.to(device)
         if not hasattr(model, 'predict'):
-            raise AttributeError("Model failed to initialize properly")
+            raise AttributeError("Model initialization failed")
             
-        st.success(f"✅ Model loaded successfully from: {model_path}")
+        st.success(f"✅ Model loaded successfully from: {path}")
         return model
         
     except Exception as e:
@@ -79,10 +76,9 @@ def load_yolo_model(path):
         st.write(f"- Ultralytics version: {ultralytics_version}")
         st.write(f"- Model path: {path}")
         st.write(f"- Working directory: {os.getcwd()}")
-        st.write(f"- Available files: {os.listdir()}")
         return None
 
-# Clear cache before loading
+# Clear any existing cache
 if hasattr(load_yolo_model, 'clear'):
     load_yolo_model.clear()
 
