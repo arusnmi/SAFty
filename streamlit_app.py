@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import base64
 
 # CRITICAL FIX: Set environment variables BEFORE any OpenCV imports
 os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
@@ -7,17 +8,11 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 import streamlit as st
 import cv2
-
-# CRITICAL FIX: Patch cv2.imshow for headless environment
-cv2.imshow = lambda *args: None
-cv2.waitKey = lambda *args: None
-cv2.destroyAllWindows = lambda *args: None
-
 import numpy as np
-from ultralytics import YOLO
 import plotly.express as px
 import pandas as pd
 from PIL import Image
+from ultralytics import YOLO
 
 # Get the absolute path to the root of the deployed app
 BASE_DIR = Path(__file__).resolve().parent
@@ -25,75 +20,46 @@ MODEL_PATH = BASE_DIR / "Safty.pt"
 
 st.set_page_config(layout="wide", page_title="PPE Compliance Detection", page_icon="⚠️")
 
-# Load the model using proven loading pattern
+# Define PPE compliance rules
+REQUIRED_PPE = {'Hardhat', 'Mask', 'Safety Vest'}
+VIOLATION_ITEMS = {'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest'}
+
 @st.cache_resource
 def load_yolo_model(path):
     """Load the YOLO model using the corrected absolute path."""
     try:
         import torch
-        import sys
-        
-        # Add required safe globals before model loading
-        torch.serialization.add_safe_globals([
-            'ultralytics.nn.tasks.DetectionModel',
-            'ultralytics.models.yolo.detect.DetectionModel',
-            'ultralytics.engine.model',
-            'ultralytics.nn.tasks',
-            'ultralytics.models.yolo.detect'
-        ])
         
         # Configure torch settings
         torch.backends.cudnn.enabled = False
         device = torch.device('cpu')
-        torch.set_default_dtype(torch.float32)
         
-        # Handle PyTorch path registration
-        if hasattr(torch, 'classes') and not hasattr(torch.classes, '_path'):
-            setattr(torch.classes, '_path', type('_path', (), {'__path__': []}))
-        
-        # Load model with weights_only=False
-        model = YOLO(str(path), task='detect')
-        model.to(device)
-        
-        # Verify model loaded correctly
-        if model is None or not hasattr(model, 'predict'):
-            raise RuntimeError("Model failed to load properly")
-            
+        model = YOLO(str(path))
         st.success(f"Model loaded successfully from: {path}")
         return model
-        
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
-        st.write("Python working directory:", os.getcwd())
-        st.write("Model path tried:", path)
-        st.write("Available files:", os.listdir(BASE_DIR))
-        st.write("Python version:", sys.version)
-        st.write("PyTorch version:", torch.__version__)
-        st.write("Ultralytics version:", YOLO.__version__)
         return None
 
-# Load the model using the fixed path
+# Initialize session state
+if 'detection_history' not in st.session_state:
+    st.session_state['detection_history'] = []
+
+# Load the model
 with st.spinner("Loading AI model..."):
     model = load_yolo_model(MODEL_PATH)
 
-# Check if model loaded successfully
 if model is None:
-    st.error("Application setup failed. Check logs for model loading errors.")
+    st.error("Failed to load model. Please check the model file.")
     st.stop()
 
-# Initialize session state for statistics
-if 'detection_count' not in st.session_state:
-    st.session_state['detection_count'] = 0
+st.title("👷 PPE Compliance Detection System")
 
-# Sidebar
-st.sidebar.title("PPE Compliance Detection")
-uploaded_file = st.sidebar.file_uploader("Upload Image", type=['jpg', 'jpeg', 'png'])
-
-# Main content
-st.title("Worker Safety Compliance Detection")
+# File uploader
+uploaded_file = st.file_uploader("Upload an image", type=['jpg', 'jpeg', 'png'])
 
 if uploaded_file is not None:
-    # Read and process image
+    # Process image
     image = Image.open(uploaded_file)
     img_array = np.array(image)
     
@@ -103,71 +69,122 @@ if uploaded_file is not None:
     else:
         img_bgr = img_array
     
-    # Run inference with spinner
-    with st.spinner("🔍 Analyzing image..."):
-        results = model(img_bgr, verbose=False, conf=0.75, device='cpu')
-    
-    # Process results
-    compliant = 0
-    partial_compliant = 0
-    non_compliant = 0
-    total_workers = len(results[0].boxes)
-    
-    # Count compliance categories
-    for box in results[0].boxes:
-        class_id = int(box.cls[0].item())
-        if class_id == 0:  # Compliant
-            compliant += 1
-        elif class_id == 1:  # Partial
-            partial_compliant += 1
-        else:  # Non-compliant
-            non_compliant += 1
-    
-    # Increment detection count
-    st.session_state['detection_count'] += 1
-    
-    # Display results
+    # Create columns for display
     col1, col2 = st.columns(2)
     
     with col1:
+        st.image(image, caption="Original Image", use_column_width=True)
+    
+    # Run detection
+    with st.spinner("🔍 Analyzing PPE compliance..."):
+        results = model(img_bgr, conf=0.25)
+    
+    # Process results
+    detections = []
+    compliant = 0
+    partial_compliant = 0
+    non_compliant = 0
+    
+    for r in results:
+        boxes = r.boxes
+        for box in boxes:
+            cls = int(box.cls[0].item())
+            conf = box.conf[0].item()
+            cls_name = model.names[cls]
+            detections.append({
+                'class': cls_name,
+                'confidence': conf
+            })
+    
+    # Count people and their compliance
+    person_count = len([d for d in detections if d['class'] == 'Person'])
+    
+    # Analyze compliance for each person
+    for i in range(person_count):
+        person_items = set(d['class'] for d in detections)
+        missing_ppe = REQUIRED_PPE - person_items
+        has_violations = bool(VIOLATION_ITEMS & person_items)
+        
+        if not missing_ppe and not has_violations:
+            compliant += 1
+        elif len(missing_ppe) == len(REQUIRED_PPE) or has_violations:
+            non_compliant += 1
+        else:
+            partial_compliant += 1
+    
+    # Display detection results
+    with col2:
         st.image(results[0].plot(), caption="Detection Results", use_column_width=True)
     
-    with col2:
-        # Metrics
-        st.subheader("Detection Summary")
-        st.metric("Total Workers Detected", total_workers)
-        st.metric("Compliant Workers", compliant)
+    # Add to history
+    st.session_state['detection_history'].append({
+        'total': person_count,
+        'compliant': compliant,
+        'partial': partial_compliant,
+        'non_compliant': non_compliant,
+        'timestamp': pd.Timestamp.now()
+    })
+    
+    # Display metrics
+    st.subheader("📊 Compliance Summary")
+    
+    # Metrics row
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric("Total Workers", person_count)
+    with m2:
+        st.metric("Fully Compliant", compliant)
+    with m3:
         st.metric("Partially Compliant", partial_compliant)
+    with m4:
         st.metric("Non-Compliant", non_compliant)
+    
+    # Compliance Distribution Chart
+    compliance_data = pd.DataFrame({
+        'Status': ['Compliant', 'Partially Compliant', 'Non-Compliant'],
+        'Count': [compliant, partial_compliant, non_compliant]
+    })
+    
+    fig = px.pie(compliance_data, values='Count', names='Status',
+                 title='PPE Compliance Distribution',
+                 color_discrete_sequence=['green', 'yellow', 'red'])
+    st.plotly_chart(fig)
+    
+    # Violation Alerts
+    if non_compliant > 0:
+        st.error(f"⚠️ ALERT: {non_compliant} workers detected without proper PPE!")
         
-        # Compliance Chart
-        compliance_data = pd.DataFrame({
-            'Status': ['Compliant', 'Partially Compliant', 'Non-Compliant'],
-            'Count': [compliant, partial_compliant, non_compliant]
-        })
+    if partial_compliant > 0:
+        st.warning(f"⚠️ WARNING: {partial_compliant} workers with partial PPE compliance")
+    
+    # Historical Trends
+    if len(st.session_state['detection_history']) > 1:
+        st.subheader("📈 Compliance Trends")
+        hist_df = pd.DataFrame(st.session_state['detection_history'])
         
-        fig = px.pie(compliance_data, values='Count', names='Status',
-                     title='Compliance Distribution')
-        st.plotly_chart(fig)
-        
-        # Alert System with improved visibility
-        if non_compliant > 0:
-            st.error(f"⚠️ Alert: {non_compliant} workers detected without proper PPE!")
-        
-        if partial_compliant > 0:
-            st.warning(f"⚠️ Note: {partial_compliant} workers with partial PPE compliance")
-        
-        if compliant == total_workers:
-            st.success("✅ All workers are compliant with PPE regulations")
+        fig_trend = px.line(hist_df, x='timestamp', 
+                           y=['compliant', 'partial', 'non_compliant'],
+                           title='Compliance Trends Over Time')
+        st.plotly_chart(fig_trend)
 
 else:
-    st.info("👆 Please upload an image to begin detection")
+    st.info("👆 Please upload an image to begin PPE compliance detection")
 
-# Show statistics in sidebar
-if st.session_state['detection_count'] > 0:
-    st.sidebar.metric("Total Detections", st.session_state['detection_count'])
+# Sidebar information
+st.sidebar.title("ℹ️ System Information")
+st.sidebar.markdown("""
+### Required PPE
+- Hard Hat
+- Safety Vest
+- Face Mask
+
+### Detection Categories
+- ✅ Compliant: All PPE present
+- ⚠️ Partial: Some PPE missing
+- ❌ Non-compliant: No PPE or unsafe conditions
+""")
 
 # Footer
-st.markdown("---")
+st.sidebar.markdown("---")
 st.sidebar.markdown("### About")
-st.sidebar.info("This app uses YOLO AI to detect and monitor PPE compliance in workplace safety scenarios.")
+st.sidebar.info("This system uses AI to monitor workplace safety compliance and PPE usage.")
