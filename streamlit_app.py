@@ -30,44 +30,51 @@ def load_yolo_model(path):
     try:
         import torch
         import sys
+        from pathlib import Path
         
-        # Configure torch settings
+        # Configure PyTorch
         torch.backends.cudnn.enabled = False
         device = torch.device('cpu')
+        torch.set_default_dtype(torch.float32)
         
-        # Add required safe globals before model loading
+        # Register safe classes for model loading
         safe_classes = [
             'ultralytics.nn.tasks.DetectionModel',
             'ultralytics.models.yolo.detect.DetectionModel',
             'ultralytics.engine.model',
             'ultralytics.nn.tasks',
-            'ultralytics.models.yolo.detect'
+            'ultralytics.models.yolo.detect',
+            'ultralytics.yolo.engine.model'
         ]
-        torch.serialization.add_safe_globals(safe_classes)
         
-        # Handle PyTorch path registration
-        if hasattr(torch, 'classes') and not hasattr(torch.classes, '_path'):
-            setattr(torch.classes, '_path', type('_path', (), {'__path__': []}))
+        for cls in safe_classes:
+            torch.serialization.add_safe_globals([cls])
         
-        # Configure model loading context
-        with torch.serialization.safe_globals(safe_classes):
-            model = YOLO(str(path), task='detect')
-            model.to(device)
-        
-        # Verify model loaded correctly
-        if model is None or not hasattr(model, 'predict'):
-            raise RuntimeError("Model failed to initialize properly")
+        # Ensure path is properly formatted
+        model_path = Path(path).resolve()
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
             
-        st.success(f"✅ Model loaded successfully from: {path}")
+        # Load model with explicit settings
+        model = YOLO(str(model_path))
+        model.to(device)
+        
+        # Verify model
+        if not hasattr(model, 'predict'):
+            raise AttributeError("Model failed to initialize properly")
+            
+        st.success(f"✅ Model loaded successfully from: {model_path}")
         return model
         
     except Exception as e:
-        st.error(f"❌ Error loading model: {str(e)}")
+        st.error(f"❌ Error loading model: {type(e).__name__}: {str(e)}")
         st.write("System Information:")
         st.write(f"- Python version: {sys.version}")
         st.write(f"- PyTorch version: {torch.__version__}")
+        st.write(f"- YOLO version: {YOLO.__version__}")
         st.write(f"- Model path: {path}")
         st.write(f"- Working directory: {os.getcwd()}")
+        st.write(f"- Available files: {os.listdir()}")
         return None
 
 # Initialize session state
