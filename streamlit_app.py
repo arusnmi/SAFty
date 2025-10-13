@@ -30,12 +30,12 @@ def load_yolo_model(path):
     try:
         import torch
         import sys
+        from ultralytics import __version__ as ultralytics_version
         from pathlib import Path
         
-        # Configure PyTorch
+        # Configure torch settings
         torch.backends.cudnn.enabled = False
         device = torch.device('cpu')
-        torch.set_default_dtype(torch.float32)
         
         # Register safe classes for model loading
         safe_classes = [
@@ -50,14 +50,19 @@ def load_yolo_model(path):
         for cls in safe_classes:
             torch.serialization.add_safe_globals([cls])
         
+        # Handle PyTorch path registration
+        if hasattr(torch, 'classes') and not hasattr(torch.classes, '_path'):
+            setattr(torch.classes, '_path', type('_path', (), {'__path__': []}))
+        
         # Ensure path is properly formatted
         model_path = Path(path).resolve()
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
             
-        # Load model with explicit settings
-        model = YOLO(str(model_path))
-        model.to(device)
+        # Load model with explicit settings and weights_only=False
+        with torch.serialization.safe_globals(safe_classes):
+            model = YOLO(str(model_path), task='detect')
+            model.to(device)
         
         # Verify model
         if not hasattr(model, 'predict'):
@@ -71,11 +76,15 @@ def load_yolo_model(path):
         st.write("System Information:")
         st.write(f"- Python version: {sys.version}")
         st.write(f"- PyTorch version: {torch.__version__}")
-        st.write(f"- YOLO version: {YOLO.__version__}")
+        st.write(f"- Ultralytics version: {ultralytics_version}")
         st.write(f"- Model path: {path}")
         st.write(f"- Working directory: {os.getcwd()}")
         st.write(f"- Available files: {os.listdir()}")
         return None
+
+# Clear cache before loading
+if hasattr(load_yolo_model, 'clear'):
+    load_yolo_model.clear()
 
 # Initialize session state
 if 'detection_history' not in st.session_state:
