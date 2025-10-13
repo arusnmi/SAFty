@@ -26,49 +26,24 @@ VIOLATION_ITEMS = {'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest'}
 
 @st.cache_resource
 def load_yolo_model(path):
-    """Load the YOLO model with proper PyTorch configuration."""
+    """Simplified YOLO model loader compatible with latest Ultralytics."""
     try:
         import torch
-        import sys
-        from ultralytics import __version__ as ultralytics_version
-        
-        # Configure torch settings
-        torch.backends.cudnn.enabled = False
-        device = torch.device('cpu')
-        
-        # Define all required model classes
-        MODEL_CLASSES = {
-            'ultralytics.nn.tasks.DetectionModel': 'DetectionModel',
-            'ultralytics.models.yolo.detect.DetectionModel': 'DetectionModel',
-            'ultralytics.engine.model': 'Model',
-            'ultralytics.nn.tasks': 'BaseModel',
-            'ultralytics.models.yolo.detect': 'DetectionModel'
-        }
+        from ultralytics import YOLO
 
-        # Register all model classes as safe globals
-        for module_path, class_name in MODEL_CLASSES.items():
-            try:
-                module_parts = module_path.split('.')
-                module = __import__(module_parts[0])
-                for part in module_parts[1:]:
-                    module = getattr(module, part)
-                torch.serialization.add_safe_globals([module])
-            except (ImportError, AttributeError):
-                continue
+        # Always use CPU for Streamlit
+        device = torch.device("cpu")
 
-        # Force weights_only to False for older model compatibility
-        torch.set_default_dtype(torch.float32)
-        model = YOLO(str(path), task='detect')
-        
-        # Move model to device and verify
+        # Directly load YOLO model
+        model = YOLO(str(path))
         model.to(device)
-        if not hasattr(model, 'predict'):
-            raise AttributeError("Model initialization failed")
-            
+
         st.success(f"✅ Model loaded successfully from: {path}")
         return model
-        
+
     except Exception as e:
+        import sys
+        from ultralytics import __version__ as ultralytics_version
         st.error(f"❌ Error loading model: {type(e).__name__}: {str(e)}")
         st.write("System Information:")
         st.write(f"- Python version: {sys.version}")
@@ -77,6 +52,7 @@ def load_yolo_model(path):
         st.write(f"- Model path: {path}")
         st.write(f"- Working directory: {os.getcwd()}")
         return None
+
 
 # Clear any existing cache
 if hasattr(load_yolo_model, 'clear'):
