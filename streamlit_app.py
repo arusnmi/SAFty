@@ -26,19 +26,48 @@ VIOLATION_ITEMS = {'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest'}
 
 @st.cache_resource
 def load_yolo_model(path):
-    """Load the YOLO model using the corrected absolute path."""
+    """Load the YOLO model with proper PyTorch configuration."""
     try:
         import torch
+        import sys
         
         # Configure torch settings
         torch.backends.cudnn.enabled = False
         device = torch.device('cpu')
         
-        model = YOLO(str(path))
-        st.success(f"Model loaded successfully from: {path}")
+        # Add required safe globals before model loading
+        safe_classes = [
+            'ultralytics.nn.tasks.DetectionModel',
+            'ultralytics.models.yolo.detect.DetectionModel',
+            'ultralytics.engine.model',
+            'ultralytics.nn.tasks',
+            'ultralytics.models.yolo.detect'
+        ]
+        torch.serialization.add_safe_globals(safe_classes)
+        
+        # Handle PyTorch path registration
+        if hasattr(torch, 'classes') and not hasattr(torch.classes, '_path'):
+            setattr(torch.classes, '_path', type('_path', (), {'__path__': []}))
+        
+        # Configure model loading context
+        with torch.serialization.safe_globals(safe_classes):
+            model = YOLO(str(path), task='detect')
+            model.to(device)
+        
+        # Verify model loaded correctly
+        if model is None or not hasattr(model, 'predict'):
+            raise RuntimeError("Model failed to initialize properly")
+            
+        st.success(f"✅ Model loaded successfully from: {path}")
         return model
+        
     except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
+        st.error(f"❌ Error loading model: {str(e)}")
+        st.write("System Information:")
+        st.write(f"- Python version: {sys.version}")
+        st.write(f"- PyTorch version: {torch.__version__}")
+        st.write(f"- Model path: {path}")
+        st.write(f"- Working directory: {os.getcwd()}")
         return None
 
 # Initialize session state
