@@ -17,40 +17,36 @@ import numpy as np
 from ultralytics import YOLO
 import plotly.express as px
 import pandas as pd
+from PIL import Image
 
 # Get the absolute path to the root of the deployed app
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "Safty.pt"
 
-# Page config
-st.set_page_config(page_title="PPE Compliance Detection", layout="wide")
+st.set_page_config(layout="wide", page_title="PPE Compliance Detection", page_icon="⚠️")
 
 # Load the model using proven loading pattern
 @st.cache_resource
-def load_model():
+def load_yolo_model(path):
     """Load the YOLO model using the corrected absolute path."""
     try:
         import torch
-        # Disable CUDNN and set device
         torch.backends.cudnn.enabled = False
         device = torch.device('cpu')
         
-        model = YOLO(str(MODEL_PATH))
-        st.success(f"Model loaded successfully from: {MODEL_PATH}")
+        model = YOLO(str(path))
+        st.success(f"Model loaded successfully from: {path}")
         return model
     except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
+        st.error(f"Error loading model: {e}")
         st.write("Python working directory:", os.getcwd())
-        st.write("Model path tried:", MODEL_PATH)
+        st.write("Model path tried:", path)
         st.write("Available files:", os.listdir(BASE_DIR))
         return None
 
-# Clear cache before loading
-if 'model' in st.session_state:
-    del st.session_state['model']
-    
+# Load the model using the fixed path
 with st.spinner("Loading AI model..."):
-    model = load_model()
+    model = load_yolo_model(MODEL_PATH)
 
 # Check if model loaded successfully
 if model is None:
