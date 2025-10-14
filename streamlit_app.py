@@ -117,8 +117,9 @@ def is_nearby(person_bbox, ppe_bbox):
     # Calculate diagonal length of person box to normalize threshold
     person_diag = np.sqrt((p_x2 - p_x1)**2 + (p_y2 - p_y1)**2)
     
-    # Use a normalized threshold (e.g., 20% of person diagonal)
-    normalized_threshold = person_diag * 0.2 
+    # Use a normalized threshold (e.g., 30% of person diagonal)
+    # FIX: Increased threshold from 0.2 to 0.3 to better associate distant PPE like vests/helmets.
+    normalized_threshold = person_diag * 0.3 
     
     return distance < normalized_threshold
 
