@@ -18,7 +18,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 # Paths and configuration
 # -------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "Safty.pt"  
+MODEL_PATH = BASE_DIR / "Safty.pt"
 
 # -------------------------------------------------------------------
 # Streamlit setup
@@ -269,9 +269,18 @@ if uploaded_file is not None:
         "Status": ["Compliant", "Partially Compliant", "Non-Compliant"],
         "Count": [compliant, partial_compliant, non_compliant]
     })
+    
+    # --- FIX 1: Explicitly map colors for pie chart ---
+    color_map = {
+        "Compliant": "green",
+        "Partially Compliant": "yellow",
+        "Non-Compliant": "red"
+    }
+    
     fig = px.pie(compliance_data, values="Count", names="Status",
                  title="PPE Compliance Distribution",
-                 color_discrete_sequence=["green", "yellow", "red"])
+                 color="Status", 
+                 color_discrete_map=color_map)
     st.plotly_chart(fig)
 
     # Compliance legend
@@ -317,7 +326,7 @@ st.sidebar.markdown(f"""
 ---
 ### Compliance Color Coding
 - 🟢 **Green**: All 3 PPE items present
-- 🟡 **Yellow**: 1-2 PPE items present
+- 🟡 **Yellow**: 1 or 2 PPE items present
 - 🔴 **Red**: No PPE or violations detected
 """)
 
