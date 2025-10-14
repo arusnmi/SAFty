@@ -53,11 +53,10 @@ if model is None:
     st.stop()
 
 # -------------------------------------------------------------------
-# Automatically detect model labels and define types
+# Automatically detect model labels
 # -------------------------------------------------------------------
 all_labels = set(model.names.values())
 
-# Define PPE and Violation labels based on model output
 REQUIRED_PPE = {lbl for lbl in all_labels if any(k in lbl.lower() for k in ["helmet", "hardhat", "mask", "vest"])}
 VIOLATION_ITEMS = {lbl for lbl in all_labels if "no" in lbl.lower() or "without" in lbl.lower()}
 
@@ -65,14 +64,6 @@ if not REQUIRED_PPE:
     REQUIRED_PPE = {"Hardhat", "Mask", "Safety Vest"}
 if not VIOLATION_ITEMS:
     VIOLATION_ITEMS = {"NO-Hardhat", "NO-Mask", "NO-Safety Vest"}
-
-# Define the set of required PPE types for accurate counting (3 total types)
-PPE_TYPE_MAP = {
-    "Hardhat/Helmet": ["hardhat", "helmet"],
-    "Mask": ["mask", "face mask"],
-    "Safety Vest": ["vest", "safety vest"]
-}
-TOTAL_REQUIRED_PPE = len(PPE_TYPE_MAP)
 
 # -------------------------------------------------------------------
 # Helper function to check IoU (Intersection over Union)
@@ -100,8 +91,8 @@ def calculate_iou(box1, box2):
 # -------------------------------------------------------------------
 # Helper function to check if PPE is nearby person
 # -------------------------------------------------------------------
-def is_nearby(person_bbox, ppe_bbox):
-    """Check if PPE bounding box is near the person using normalized threshold."""
+def is_nearby(person_bbox, ppe_bbox, threshold=100):
+    """Check if PPE bounding box is near the person."""
     p_x1, p_y1, p_x2, p_y2 = person_bbox
     ppe_x1, ppe_y1, ppe_x2, ppe_y2 = ppe_bbox
     
@@ -114,14 +105,7 @@ def is_nearby(person_bbox, ppe_bbox):
     # Calculate distance
     distance = np.sqrt((p_center_x - ppe_center_x)**2 + (p_center_y - ppe_center_y)**2)
     
-    # Calculate diagonal length of person box to normalize threshold
-    person_diag = np.sqrt((p_x2 - p_x1)**2 + (p_y2 - p_y1)**2)
-    
-    # Use a normalized threshold (e.g., 30% of person diagonal)
-    # FIX: Increased threshold from 0.2 to 0.3 to better associate distant PPE like vests/helmets.
-    normalized_threshold = person_diag * 0.3 
-    
-    return distance < normalized_threshold
+    return distance < threshold
 
 # -------------------------------------------------------------------
 # Session state
@@ -141,11 +125,7 @@ if uploaded_file is not None:
     if len(img_array.shape) == 3 and img_array.shape[2] == 3:
         img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     else:
-        # Handle grayscale or single channel image conversion to BGR if necessary
-        if len(img_array.shape) == 2:
-            img_bgr = cv2.cvtColor(img_array, cv2.COLOR_GRAY2BGR)
-        else:
-            img_bgr = img_array
+        img_bgr = img_array
 
     col1, col2 = st.columns(2)
     with col1:
@@ -155,7 +135,6 @@ if uploaded_file is not None:
     # YOLOv11 Inference
     # ----------------------------------------------------------------
     with st.spinner("🔍 Analyzing PPE compliance..."):
-        # Ensure the model receives an array in the expected BGR format
         results = model(img_bgr, conf=0.25)
 
     detections = []
@@ -189,73 +168,54 @@ if uploaded_file is not None:
     for person in persons:
         person_bbox = person["bbox"]
         
-        # Find all associated PPE items (positive and violation labels)
-        associated_ppe_classes = []
+        # Find PPE items associated with this person (using IoU)
+        associated_ppe = []
         for ppe in ppe_items:
             ppe_bbox = ppe["bbox"]
+            iou = calculate_iou(person_bbox, ppe_bbox)
             
-            # Check if PPE is sufficiently close to the person (proximity check is more reliable for body-worn items)
-            if is_nearby(person_bbox, ppe_bbox):
-                associated_ppe_classes.append(ppe["class"])
+            # If PPE overlaps or is nearby the person
+            if iou > 0.1 or is_nearby(person_bbox, ppe_bbox):
+                associated_ppe.append(ppe["class"])
         
-        # --- CRITICAL FIX: Calculate unique PPE *types* present ---
-        # This prevents overcounting if, e.g., both 'Hardhat' and 'Helmet' are detected.
-        detected_ppe_types = set()
-        
-        # Check for required PPE labels only
-        for ppe_class in set(associated_ppe_classes) & REQUIRED_PPE:
-            ppe_class_lower = ppe_class.lower()
-            for ppe_type, keywords in PPE_TYPE_MAP.items():
-                if any(k in ppe_class_lower for k in keywords):
-                    # Add the high-level type (e.g., "Hardhat/Helmet") to the set
-                    detected_ppe_types.add(ppe_type)
-                    break
-        
-        ppe_count = len(detected_ppe_types)
-        
-        # Check for explicit violation items (e.g., NO-Hardhat) associated with the person
-        # This is a critical safety check: any "NO" detection should fail the compliance.
-        has_violations = bool(set(associated_ppe_classes) & VIOLATION_ITEMS)
+        # Count how many required PPE items are present
+        detected_ppe_set = set(associated_ppe) & REQUIRED_PPE
+        has_violations = bool(set(associated_ppe) & VIOLATION_ITEMS)
+        ppe_count = len(detected_ppe_set)
         
         # Determine compliance status
-        # Rule 1: Fully Compliant (all 3 types present AND no explicit violation)
-        if ppe_count == TOTAL_REQUIRED_PPE and not has_violations:
-            status = "FULLY COMPLIANT"
-            box_color = (0, 255, 0)  # Green (BGR format)
+        if ppe_count == 3 and not has_violations:
+            status = "compliant"
+            box_color = (0, 255, 0)  # Green
             compliant += 1
-        # Rule 2: Non-Compliant (0 types present OR an explicit violation detected)
         elif ppe_count == 0 or has_violations:
-            status = "NON-COMPLIANT"
-            box_color = (0, 0, 255)  # Red (BGR format)
+            status = "non_compliant"
+            box_color = (0, 0, 255)  # Red
             non_compliant += 1
-        # Rule 3: Partially Compliant (1 or 2 types present, and no explicit violation)
-        else: # ppe_count > 0 and ppe_count < TOTAL_REQUIRED_PPE and not has_violations
-            status = "PARTIALLY COMPLIANT"
-            box_color = (0, 255, 255)  # Yellow (BGR format)
+        else:
+            status = "partial"
+            box_color = (0, 255, 255)  # Yellow
             partial_compliant += 1
-
         
         person_compliance.append({
             "bbox": person_bbox,
             "status": status,
             "color": box_color,
-            "ppe_count": ppe_count
+            "ppe_count": ppe_count,
+            "detected_types": list(detected_ppe_types),
+            "all_associated": list(set(associated_ppe_classes))
         })
         
         # Draw compliance box around person
         x1, y1, x2, y2 = person_bbox
         cv2.rectangle(output_image, (x1, y1), (x2, y2), box_color, 4)
         
-        # Add status label (PPE count and compliance status)
-        label = f"PPE: {ppe_count}/{TOTAL_REQUIRED_PPE} ({status.split()[0].upper()})"
+        # Add status label
+        label = f"PPE: {ppe_count}/3"
         label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-        
-        # Draw background rectangle for the label
-        cv2.rectangle(output_image, (x1, y1 - label_size[1] - 15), 
-                     (x1 + label_size[0] + 10, y1), box_color, -1)
-        
-        # Put the text on top
-        cv2.putText(output_image, label, (x1 + 5, y1 - 5),
+        cv2.rectangle(output_image, (x1, y1 - label_size[1] - 10), 
+                     (x1 + label_size[0], y1), box_color, -1)
+        cv2.putText(output_image, label, (x1, y1 - 5),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
     # Draw PPE item detections (smaller boxes)
@@ -264,13 +224,13 @@ if uploaded_file is not None:
         cls_name = ppe["class"]
         conf = ppe["confidence"]
         
-        # Determine color based on item type (using BGR format)
+        # Determine color based on item type
         if "no" in cls_name.lower() or "without" in cls_name.lower():
             color = (0, 0, 255)  # Red for violations
         elif "mask" in cls_name.lower():
             color = (255, 255, 0)  # Cyan for mask
         elif "vest" in cls_name.lower():
-            color = (0, 165, 255)  # Orange/Brown for vest (B:0, G:165, R:255)
+            color = (0, 165, 255)  # Orange for vest
         elif "helmet" in cls_name.lower() or "hardhat" in cls_name.lower():
             color = (0, 255, 0)  # Green for helmet
         else:
@@ -311,26 +271,17 @@ if uploaded_file is not None:
         "Status": ["Compliant", "Partially Compliant", "Non-Compliant"],
         "Count": [compliant, partial_compliant, non_compliant]
     })
-    
-    # Explicitly map colors for pie chart for consistency
-    color_map = {
-        "Compliant": "green",
-        "Partially Compliant": "yellow",
-        "Non-Compliant": "red"
-    }
-    
     fig = px.pie(compliance_data, values="Count", names="Status",
                  title="PPE Compliance Distribution",
-                 color="Status", 
-                 color_discrete_map=color_map)
+                 color_discrete_sequence=["green", "yellow", "red"])
     st.plotly_chart(fig)
 
     # Compliance legend
-    st.markdown(f"""
+    st.markdown("""
     **Compliance Legend:**
-    - 🟢 **Green Box (Fully Compliant)**: {TOTAL_REQUIRED_PPE}/{TOTAL_REQUIRED_PPE} PPE items detected (Hardhat, Mask, Safety Vest) **AND** no violations.
-    - 🟡 **Yellow Box (Partially Compliant)**: 1/{TOTAL_REQUIRED_PPE} or 2/{TOTAL_REQUIRED_PPE} PPE items detected, and no violations.
-    - 🔴 **Red Box (Non-Compliant)**: 0/{TOTAL_REQUIRED_PPE} PPE items detected **OR** any explicit violation detected (e.g., 'NO-Hardhat').
+    - 🟢 **Green Box**: All 3 PPE items detected (Hardhat, Mask, Safety Vest)
+    - 🟡 **Yellow Box**: 1 or 2 PPE items detected
+    - 🔴 **Red Box**: No PPE detected or violations present
     """)
 
     if non_compliant > 0:
@@ -366,10 +317,10 @@ st.sidebar.markdown(f"""
 ### Violation Labels (auto-detected)
 {', '.join(sorted(VIOLATION_ITEMS))}
 ---
-### Compliance Color Coding (Based on PPE Count out of {TOTAL_REQUIRED_PPE})
-- 🟢 **Green**: {TOTAL_REQUIRED_PPE}/{TOTAL_REQUIRED_PPE} PPE items present (Fully Compliant)
-- 🟡 **Yellow**: 1/{TOTAL_REQUIRED_PPE} or 2/{TOTAL_REQUIRED_PPE} PPE items present (Partially Compliant)
-- 🔴 **Red**: 0/{TOTAL_REQUIRED_PPE} PPE items present (Non-Compliant)
+### Compliance Color Coding
+- 🟢 **Green**: All 3 PPE items present
+- 🟡 **Yellow**: 1-2 PPE items present
+- 🔴 **Red**: No PPE or violations detected
 """)
 
 st.sidebar.markdown("---")
