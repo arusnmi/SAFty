@@ -89,6 +89,25 @@ def calculate_iou(box1, box2):
     return inter_area / union_area if union_area > 0 else 0.0
 
 # -------------------------------------------------------------------
+# Helper function to check if PPE is nearby person
+# -------------------------------------------------------------------
+def is_nearby(person_bbox, ppe_bbox, threshold=100):
+    """Check if PPE bounding box is near the person."""
+    p_x1, p_y1, p_x2, p_y2 = person_bbox
+    ppe_x1, ppe_y1, ppe_x2, ppe_y2 = ppe_bbox
+    
+    # Calculate center points
+    p_center_x = (p_x1 + p_x2) / 2
+    p_center_y = (p_y1 + p_y2) / 2
+    ppe_center_x = (ppe_x1 + ppe_x2) / 2
+    ppe_center_y = (ppe_y1 + ppe_y2) / 2
+    
+    # Calculate distance
+    distance = np.sqrt((p_center_x - ppe_center_x)**2 + (p_center_y - ppe_center_y)**2)
+    
+    return distance < threshold
+
+# -------------------------------------------------------------------
 # Session state
 # -------------------------------------------------------------------
 if "detection_history" not in st.session_state:
@@ -281,25 +300,6 @@ if uploaded_file is not None:
 
 else:
     st.info("👆 Please upload an image to begin PPE compliance detection")
-
-# -------------------------------------------------------------------
-# Helper function to check if PPE is nearby person
-# -------------------------------------------------------------------
-def is_nearby(person_bbox, ppe_bbox, threshold=100):
-    """Check if PPE bounding box is near the person."""
-    p_x1, p_y1, p_x2, p_y2 = person_bbox
-    ppe_x1, ppe_y1, ppe_x2, ppe_y2 = ppe_bbox
-    
-    # Calculate center points
-    p_center_x = (p_x1 + p_x2) / 2
-    p_center_y = (p_y1 + p_y2) / 2
-    ppe_center_x = (ppe_x1 + ppe_x2) / 2
-    ppe_center_y = (ppe_y1 + ppe_y2) / 2
-    
-    # Calculate distance
-    distance = np.sqrt((p_center_x - ppe_center_x)**2 + (p_center_y - ppe_center_y)**2)
-    
-    return distance < threshold
 
 # -------------------------------------------------------------------
 # Sidebar
