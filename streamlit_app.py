@@ -192,13 +192,13 @@ if uploaded_file is not None:
         associated_ppe_classes = []
         for ppe in ppe_items:
             ppe_bbox = ppe["bbox"]
-            iou = calculate_iou(person_bbox, ppe_bbox)
             
-            # If PPE overlaps (high IoU) or is nearby
-            if iou > 0.1 or is_nearby(person_bbox, ppe_bbox):
+            # Check if PPE is sufficiently close to the person (proximity check is more reliable for body-worn items)
+            if is_nearby(person_bbox, ppe_bbox):
                 associated_ppe_classes.append(ppe["class"])
         
         # --- CRITICAL FIX: Calculate unique PPE *types* present ---
+        # This prevents overcounting if, e.g., both 'Hardhat' and 'Helmet' are detected.
         detected_ppe_types = set()
         
         # Check for required PPE labels only
@@ -213,24 +213,25 @@ if uploaded_file is not None:
         ppe_count = len(detected_ppe_types)
         
         # Check for explicit violation items (e.g., NO-Hardhat) associated with the person
+        # This is a critical safety check: any "NO" detection should fail the compliance.
         has_violations = bool(set(associated_ppe_classes) & VIOLATION_ITEMS)
         
-        # Determine compliance status based strictly on ppe_count
-        # Rule 1: Fully Compliant (all 3 types present)
-        if ppe_count == TOTAL_REQUIRED_PPE:
+        # Determine compliance status
+        # Rule 1: Fully Compliant (all 3 types present AND no explicit violation)
+        if ppe_count == TOTAL_REQUIRED_PPE and not has_violations:
             status = "FULLY COMPLIANT"
             box_color = (0, 255, 0)  # Green (BGR format)
             compliant += 1
-        # Rule 2: Partially Compliant (1 or 2 types present)
-        elif ppe_count > 0 and ppe_count < TOTAL_REQUIRED_PPE:
-            status = "PARTIALLY COMPLIANT"
-            box_color = (0, 255, 255)  # Yellow (BGR format)
-            partial_compliant += 1
-        # Rule 3: Non-Compliant (0 types present OR explicit violation detected)
-        else: # ppe_count == 0 or explicit violations (though violations should be covered by count 0 logic usually)
+        # Rule 2: Non-Compliant (0 types present OR an explicit violation detected)
+        elif ppe_count == 0 or has_violations:
             status = "NON-COMPLIANT"
             box_color = (0, 0, 255)  # Red (BGR format)
             non_compliant += 1
+        # Rule 3: Partially Compliant (1 or 2 types present, and no explicit violation)
+        else: # ppe_count > 0 and ppe_count < TOTAL_REQUIRED_PPE and not has_violations
+            status = "PARTIALLY COMPLIANT"
+            box_color = (0, 255, 255)  # Yellow (BGR format)
+            partial_compliant += 1
 
         
         person_compliance.append({
@@ -326,9 +327,9 @@ if uploaded_file is not None:
     # Compliance legend
     st.markdown(f"""
     **Compliance Legend:**
-    - 🟢 **Green Box (Fully Compliant)**: {TOTAL_REQUIRED_PPE}/{TOTAL_REQUIRED_PPE} PPE items detected (Hardhat, Mask, Safety Vest)
-    - 🟡 **Yellow Box (Partially Compliant)**: 1/{TOTAL_REQUIRED_PPE} or 2/{TOTAL_REQUIRED_PPE} PPE items detected
-    - 🔴 **Red Box (Non-Compliant)**: 0/{TOTAL_REQUIRED_PPE} PPE items detected
+    - 🟢 **Green Box (Fully Compliant)**: {TOTAL_REQUIRED_PPE}/{TOTAL_REQUIRED_PPE} PPE items detected (Hardhat, Mask, Safety Vest) **AND** no violations.
+    - 🟡 **Yellow Box (Partially Compliant)**: 1/{TOTAL_REQUIRED_PPE} or 2/{TOTAL_REQUIRED_PPE} PPE items detected, and no violations.
+    - 🔴 **Red Box (Non-Compliant)**: 0/{TOTAL_REQUIRED_PPE} PPE items detected **OR** any explicit violation detected (e.g., 'NO-Hardhat').
     """)
 
     if non_compliant > 0:
