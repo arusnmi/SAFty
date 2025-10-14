@@ -18,7 +18,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 # Paths and configuration
 # -------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "best.pt"  
+MODEL_PATH = BASE_DIR / "Safty.pt"  
 
 # -------------------------------------------------------------------
 # Streamlit setup
