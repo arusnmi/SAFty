@@ -270,7 +270,6 @@ if uploaded_file is not None:
         "Count": [compliant, partial_compliant, non_compliant]
     })
     
-    # --- FIX 1: Explicitly map colors for pie chart ---
     color_map = {
         "Compliant": "green",
         "Partially Compliant": "yellow",
@@ -287,8 +286,8 @@ if uploaded_file is not None:
     st.markdown("""
     **Compliance Legend:**
     - 🟢 **Green Box**: All 3 PPE items detected (Hardhat, Mask, Safety Vest)
-    - 🟡 **Yellow Box**: 1 or 2 PPE items detected
-    - 🔴 **Red Box**: No PPE detected or violations present
+    - 🟡 **Yellow Box**: **1 or 2** PPE items detected
+    - 🔴 **Red Box**: No PPE detected (0 items) or violations present
     """)
 
     if non_compliant > 0:
@@ -326,7 +325,7 @@ st.sidebar.markdown(f"""
 ---
 ### Compliance Color Coding
 - 🟢 **Green**: All 3 PPE items present
-- 🟡 **Yellow**: 1 or 2 PPE items present
+- 🟡 **Yellow**: **1 or 2** PPE items present
 - 🔴 **Red**: No PPE or violations detected
 """)
 
