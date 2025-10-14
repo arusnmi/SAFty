@@ -168,7 +168,7 @@ if uploaded_file is not None:
     for person in persons:
         person_bbox = person["bbox"]
         
-        # Find PPE items associated with this person (using IoU)
+        # Find all associated PPE items (positive and violation labels)
         associated_ppe = []
         for ppe in ppe_items:
             ppe_bbox = ppe["bbox"]
@@ -178,24 +178,37 @@ if uploaded_file is not None:
             if iou > 0.1 or is_nearby(person_bbox, ppe_bbox):
                 associated_ppe.append(ppe["class"])
         
-        # Count how many required PPE items are present
+        # Count positive PPE items
         detected_ppe_set = set(associated_ppe) & REQUIRED_PPE
-        has_violations = bool(set(associated_ppe) & VIOLATION_ITEMS)
         ppe_count = len(detected_ppe_set)
+
+        # Check for violation items
+        has_violations = bool(set(associated_ppe) & VIOLATION_ITEMS)
         
         # Determine compliance status
         if ppe_count == 3 and not has_violations:
             status = "compliant"
             box_color = (0, 255, 0)  # Green
             compliant += 1
-        elif ppe_count == 0 or has_violations:
+        elif ppe_count > 0:
+            # FIX: If one or two PPE items are present (ppe_count > 0), 
+            # the status must be "partial" regardless of violation labels, 
+            # to honor the positive detection.
+            status = "partial"
+            box_color = (0, 255, 255)  # Yellow
+            partial_compliant += 1
+        elif has_violations or ppe_count == 0:
+            # Non-compliant if 0 PPE items OR violation items are present 
+            # (which is the case when ppe_count is 0 or low confidence on positive item)
             status = "non_compliant"
             box_color = (0, 0, 255)  # Red
             non_compliant += 1
         else:
-            status = "partial"
-            box_color = (0, 255, 255)  # Yellow
-            partial_compliant += 1
+             # Should not happen, but serves as a safety catch (defaults to non-compliant)
+            status = "non_compliant"
+            box_color = (0, 0, 255)  
+            non_compliant += 1
+
         
         person_compliance.append({
             "bbox": person_bbox,
