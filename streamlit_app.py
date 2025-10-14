@@ -18,7 +18,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 # Paths and configuration
 # -------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "Safty.pt"
+MODEL_PATH = BASE_DIR / "Safty.pt"  
 
 # -------------------------------------------------------------------
 # Streamlit setup
@@ -53,17 +53,20 @@ if model is None:
     st.stop()
 
 # -------------------------------------------------------------------
-# Automatically detect model labels
+# Automatically detect model labels and define types
 # -------------------------------------------------------------------
 all_labels = set(model.names.values())
 
-REQUIRED_PPE = {lbl for lbl in all_labels if any(k in lbl.lower() for k in ["helmet", "hardhat", "mask", "vest"])}
+REQUIRED_PPE_LABELS = {lbl for lbl in all_labels if any(k in lbl.lower() for k in ["helmet", "hardhat", "mask", "vest"])}
 VIOLATION_ITEMS = {lbl for lbl in all_labels if "no" in lbl.lower() or "without" in lbl.lower()}
 
-if not REQUIRED_PPE:
-    REQUIRED_PPE = {"Hardhat", "Mask", "Safety Vest"}
+if not REQUIRED_PPE_LABELS:
+    REQUIRED_PPE_LABELS = {"Hardhat", "Mask", "Safety Vest"}
 if not VIOLATION_ITEMS:
     VIOLATION_ITEMS = {"NO-Hardhat", "NO-Mask", "NO-Safety Vest"}
+
+# Define the set of required PPE types for accurate counting
+REQUIRED_PPE_TYPES = {"Hardhat/Helmet", "Mask", "Safety Vest"}
 
 # -------------------------------------------------------------------
 # Helper function to check IoU (Intersection over Union)
@@ -157,7 +160,7 @@ if uploaded_file is not None:
     # Separate persons and PPE items
     # ----------------------------------------------------------------
     persons = [d for d in detections if d["class"].lower() == "person"]
-    ppe_items = [d for d in detections if d["class"] in REQUIRED_PPE or d["class"] in VIOLATION_ITEMS]
+    ppe_items = [d for d in detections if d["class"] in REQUIRED_PPE_LABELS or d["class"] in VIOLATION_ITEMS]
 
     # ----------------------------------------------------------------
     # Compliance analysis per person
@@ -178,40 +181,33 @@ if uploaded_file is not None:
             if iou > 0.1 or is_nearby(person_bbox, ppe_bbox):
                 associated_ppe.append(ppe["class"])
         
-        # Count positive PPE items by type (Hardhat/Helmet, Mask, Safety Vest)
-        detected_ppe_classes = set()
-        for ppe_class in set(associated_ppe) & REQUIRED_PPE:
+        # --- FIX: Calculate unique PPE items based on type ---
+        detected_ppe_types = set()
+        for ppe_class in set(associated_ppe) & REQUIRED_PPE_LABELS:
             if "hardhat" in ppe_class.lower() or "helmet" in ppe_class.lower():
-                detected_ppe_classes.add("Hardhat/Helmet")
+                detected_ppe_types.add("Hardhat/Helmet")
             elif "mask" in ppe_class.lower():
-                detected_ppe_classes.add("Mask")
+                detected_ppe_types.add("Mask")
             elif "vest" in ppe_class.lower():
-                detected_ppe_classes.add("Safety Vest")
+                detected_ppe_types.add("Safety Vest")
         
-        ppe_count = len(detected_ppe_classes)
+        ppe_count = len(detected_ppe_types)
         
-        # Check for violation items
+        # Check for violation items (not strictly used for status, but for display/alert)
         has_violations = bool(set(associated_ppe) & VIOLATION_ITEMS)
         
-        # Determine compliance status
-        if ppe_count == 3 and not has_violations:
+        # --- FIX: Determine compliance status based strictly on ppe_count ---
+        if ppe_count == 3:
             status = "compliant"
             box_color = (0, 255, 0)  # Green
             compliant += 1
-        elif ppe_count > 0:
-            # FIX: Partial if 1 or 2 PPE items are present, prioritizing positive detection
+        elif ppe_count == 1 or ppe_count == 2:
             status = "partial"
             box_color = (0, 255, 255)  # Yellow
             partial_compliant += 1
-        elif has_violations or ppe_count == 0:
-            # Non-compliant if 0 PPE items OR violation items are present (when ppe_count is 0)
+        else: # ppe_count == 0
             status = "non_compliant"
             box_color = (0, 0, 255)  # Red
-            non_compliant += 1
-        else:
-             # Safety catch
-            status = "non_compliant"
-            box_color = (0, 0, 255)
             non_compliant += 1
 
         
@@ -226,7 +222,7 @@ if uploaded_file is not None:
         x1, y1, x2, y2 = person_bbox
         cv2.rectangle(output_image, (x1, y1), (x2, y2), box_color, 4)
         
-        # Add status label
+        # Add status label (which is now guaranteed to be 0/3, 1/3, 2/3, or 3/3)
         label = f"PPE: {ppe_count}/3"
         label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
         cv2.rectangle(output_image, (x1, y1 - label_size[1] - 10), 
@@ -288,7 +284,7 @@ if uploaded_file is not None:
         "Count": [compliant, partial_compliant, non_compliant]
     })
     
-    # FIX: Explicitly map colors for pie chart
+    # Explicitly map colors for pie chart for consistency
     color_map = {
         "Compliant": "green",
         "Partially Compliant": "yellow",
@@ -304,9 +300,9 @@ if uploaded_file is not None:
     # Compliance legend
     st.markdown("""
     **Compliance Legend:**
-    - 🟢 **Green Box**: All 3 PPE items detected (Hardhat, Mask, Safety Vest)
-    - 🟡 **Yellow Box**: **1 or 2** PPE items detected
-    - 🔴 **Red Box**: No PPE detected (0 items) or violations present
+    - 🟢 **Green Box (Fully Compliant)**: 3/3 PPE items detected (Hardhat, Mask, Safety Vest)
+    - 🟡 **Yellow Box (Partially Compliant)**: 1/3 or 2/3 PPE items detected
+    - 🔴 **Red Box (Non-Compliant)**: 0/3 PPE items detected
     """)
 
     if non_compliant > 0:
@@ -337,15 +333,15 @@ st.sidebar.markdown(f"""
 {', '.join(sorted(all_labels))}
 ---
 ### Required PPE (auto-detected)
-{', '.join(sorted(REQUIRED_PPE))}
+{', '.join(sorted(REQUIRED_PPE_LABELS))}
 ---
 ### Violation Labels (auto-detected)
 {', '.join(sorted(VIOLATION_ITEMS))}
 ---
-### Compliance Color Coding
-- 🟢 **Green**: All 3 PPE items present
-- 🟡 **Yellow**: **1 or 2** PPE items present
-- 🔴 **Red**: No PPE or violations detected
+### Compliance Color Coding (Based on PPE Count out of 3)
+- 🟢 **Green**: 3/3 PPE items present (Fully Compliant)
+- 🟡 **Yellow**: 1/3 or 2/3 PPE items present (Partially Compliant)
+- 🔴 **Red**: 0/3 PPE items present (Non-Compliant)
 """)
 
 st.sidebar.markdown("---")
