@@ -55,7 +55,7 @@ if model is None:
 # Auto-detect labels
 # -------------------------------------------------------------------
 all_labels = set(model.names.values())
-REQUIRED_PPE = {lbl for lbl in all_labels if any(k in lbl.lower() for k in ["helmet", "hardhat", "mask", "vest"])}
+REQUIRED_PPE = {lbl for lbl in all_labels if any(k in lbl.lower() for k in [ "Hardhat", "Mask", "Safety Vest"])}
 VIOLATION_ITEMS = {lbl for lbl in all_labels if "no" in lbl.lower() or "without" in lbl.lower()}
 if not REQUIRED_PPE:
     REQUIRED_PPE = {"Hardhat", "Mask", "Safety Vest"}
