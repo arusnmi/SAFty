@@ -211,14 +211,50 @@ if uploaded_file is not None:
     m3.metric("Partially Compliant", partial_compliant)
     m4.metric("Non-Compliant", non_compliant)
 
+    # --- Fixed color pie chart with color-matched legend ---
+    color_map = {
+        "Compliant": "#00FF00",           # 🟢 Green
+        "Partially Compliant": "#FFFF00", # 🟡 Yellow
+        "Non-Compliant": "#FF0000"        # 🔴 Red
+    }
+
     compliance_data = pd.DataFrame({
         "Status": ["Compliant", "Partially Compliant", "Non-Compliant"],
         "Count": [compliant, partial_compliant, non_compliant]
     })
-    fig = px.pie(compliance_data, values="Count", names="Status",
-                 title="PPE Compliance Distribution",
-                 color_discrete_sequence=["green", "yellow", "red"])
-    st.plotly_chart(fig)
+
+    fig = px.pie(
+        compliance_data,
+        values="Count",
+        names="Status",
+        title="PPE Compliance Distribution",
+        color="Status",
+        color_discrete_map=color_map,
+        category_orders={"Status": ["Compliant", "Partially Compliant", "Non-Compliant"]}
+    )
+
+    fig.update_traces(sort=False, marker=dict(line=dict(color="#000000", width=1)))
+
+    fig.update_layout(
+        legend=dict(
+            font=dict(size=14),
+            itemsizing="constant",
+            orientation="h",
+            yanchor="bottom",
+            y=-0.2,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(0,0,0,0)"
+        ),
+        title=dict(font=dict(size=20)),
+        margin=dict(t=80, b=80)
+    )
+
+    # Color legend text
+    for trace in fig.data:
+        trace.name = f"<span style='color:{color_map.get(trace.name, '#FFFFFF')}'>{trace.name}</span>"
+
+    st.plotly_chart(fig, use_container_width=True)
 
     # --- Detected valid PPE classes in the frame ---
     valid_classes_in_frame = sorted({ppe["class"] for ppe in ppe_items if ppe["class"] in REQUIRED_PPE})
