@@ -1,14 +1,11 @@
 import os
 
 # --- Auto-disable file watcher on Streamlit Cloud ---
-# Streamlit Cloud sets specific environment variables (like 'STREAMLIT_RUNTIME' or 'STREAMLIT_SERVER_PORT')
-# We'll detect that and turn off the file watcher to prevent the inotify watch limit crash.
 if "STREAMLIT_RUNTIME" in os.environ or os.environ.get("STREAMLIT_SHARING_MODE") == "true":
     os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
     print("🔒 Streamlit Cloud detected — file watcher disabled to prevent inotify limit errors.")
 else:
     print("💻 Running locally — file watcher remains enabled for auto-reload.")
-
 
 from pathlib import Path
 import streamlit as st
@@ -125,7 +122,7 @@ if uploaded_file is not None:
             cls = int(box.cls[0].item())
             conf = float(box.conf[0].item())
             cls_name = model.names[cls]
-            x1, y1, x2, y2 = tuple(map(int, box.xyxy[0]))  # ✅ Fixed unpack
+            x1, y1, x2, y2 = tuple(map(int, box.xyxy[0]))
             detections.append({"class": cls_name, "confidence": conf, "bbox": (x1, y1, x2, y2)})
 
     persons = [d for d in detections if d["class"].lower() == "person"]
@@ -134,41 +131,54 @@ if uploaded_file is not None:
     compliant = partial_compliant = non_compliant = 0
     person_compliance = []
 
-    # --- Compliance logic ---
+    # --- Per-person compliance logic (UPDATED) ---
+    # KEY CHANGE: status is determined ONLY by ppe_count (0,1,2,3).
+    # detected_violations are recorded per-person but DO NOT change status or increment non_compliant.
     for person in persons:
         person_bbox = person["bbox"]
+
+        # PPE items close to this person only
         associated_ppe = [
-            ppe["class"]
-            for ppe in ppe_items
+            ppe for ppe in ppe_items
             if calculate_iou(person_bbox, ppe["bbox"]) > 0.1 or is_nearby(person_bbox, ppe["bbox"])
         ]
-        detected_ppe_set = set(associated_ppe) & REQUIRED_PPE
-        has_violations = bool(set(associated_ppe) & VIOLATION_ITEMS)
-        ppe_count = len(detected_ppe_set)
 
-        if ppe_count == 3 and not has_violations:
-            status, box_color = "compliant", (0, 255, 0)
-            compliant += 1
-        elif ppe_count == 0 or has_violations:
-            status, box_color = "non_compliant", (0, 0, 255)
+        # Separate required PPE and violation labels for this person
+        detected_required = {ppe["class"] for ppe in associated_ppe if ppe["class"] in REQUIRED_PPE}
+        detected_violations = {ppe["class"] for ppe in associated_ppe if ppe["class"] in VIOLATION_ITEMS}
+
+        # PPE count clamped between 0 and 3
+        ppe_count = min(len(detected_required), 3)
+
+        # --- Compliance determination (NOW BASED ONLY ON ppe_count) ---
+        # 0 -> non_compliant, 1/2 -> partial, 3 -> compliant
+        if ppe_count == 0:
+            status, box_color = "non_compliant", (0, 0, 255)   # Red
+            compliant_label = "0/3"
             non_compliant += 1
-        else:
-            status, box_color = "partial", (0, 255, 255)
+        elif ppe_count in (1, 2):
+            status, box_color = "partial", (0, 255, 255)       # Yellow
+            compliant_label = f"{ppe_count}/3"
             partial_compliant += 1
+        else:  # ppe_count == 3
+            status, box_color = "compliant", (0, 255, 0)       # Green
+            compliant_label = "3/3"
+            compliant += 1
 
+        # Save per-person record (we keep violations logged but they don't change status)
         person_compliance.append({
             "bbox": person_bbox,
             "status": status,
             "color": box_color,
             "ppe_count": ppe_count,
-            "detected_types": list(detected_ppe_set),
-            "all_associated": list(set(associated_ppe))
+            "detected_types": list(detected_required),
+            "violations": list(detected_violations)  # recorded for auditing only
         })
 
-        # Draw person box
+        # Draw person box + label
         x1, y1, x2, y2 = person_bbox
         cv2.rectangle(output_image, (x1, y1), (x2, y2), box_color, 4)
-        label = f"PPE: {ppe_count}/3"
+        label = f"PPE: {compliant_label}"
         label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
         cv2.rectangle(output_image, (x1, y1 - label_size[1] - 10),
                       (x1 + label_size[0], y1), box_color, -1)
@@ -203,50 +213,3 @@ if uploaded_file is not None:
 
     # --- Metrics ---
     person_count = len(persons)
-    st.session_state["detection_history"].append({
-        "total": person_count,
-        "compliant": compliant,
-        "partial": partial_compliant,
-        "non_compliant": non_compliant,
-        "timestamp": pd.Timestamp.now()
-    })
-
-    st.subheader("📊 Compliance Summary")
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total Workers", person_count)
-    m2.metric("Fully Compliant", compliant, delta="🟢" if compliant > 0 else None)
-    m3.metric("Partially Compliant", partial_compliant, delta="🟡" if partial_compliant > 0 else None)
-    m4.metric("Non-Compliant", non_compliant, delta="🔴" if non_compliant > 0 else None)
-
-    compliance_data = pd.DataFrame({
-        "Status": ["Compliant", "Partially Compliant", "Non-Compliant"],
-        "Count": [compliant, partial_compliant, non_compliant]
-    })
-    fig = px.pie(compliance_data, values="Count", names="Status",
-                 title="PPE Compliance Distribution",
-                 color_discrete_sequence=["green", "yellow", "red"])
-    st.plotly_chart(fig)
-
-    st.markdown("""
-    **Compliance Legend:**
-    - 🟢 Green: All 3 PPE items detected (Hardhat, Mask, Safety Vest)
-    - 🟡 Yellow: 1 or 2 PPE items detected
-    - 🔴 Red: No PPE detected or violations present
-    """)
-
-    # --- Alerts and Trends ---
-    if non_compliant > 0:
-        st.error(f"⚠️ ALERT: {non_compliant} workers detected without proper PPE!")
-    if partial_compliant > 0:
-        st.warning(f"⚠️ WARNING: {partial_compliant} workers with partial PPE compliance")
-
-    if len(st.session_state["detection_history"]) > 1:
-        st.subheader("📈 Compliance Trends")
-        hist_df = pd.DataFrame(st.session_state["detection_history"])
-        fig_trend = px.line(hist_df, x="timestamp",
-                            y=["compliant", "partial", "non_compliant"],
-                            title="Compliance Trends Over Time")
-        st.plotly_chart(fig_trend)
-
-else:
-    st.info("👆 Please upload an image to begin PPE compliance detection")
