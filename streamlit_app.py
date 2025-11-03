@@ -213,3 +213,51 @@ if uploaded_file is not None:
 
     # --- Metrics ---
     person_count = len(persons)
+    st.session_state["detection_history"].append({
+        "total": person_count,
+        "compliant": compliant,
+        "partial": partial_compliant,
+        "non_compliant": non_compliant,
+        "timestamp": pd.Timestamp.now()
+    })
+
+    st.subheader("📊 Compliance Summary")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Workers", person_count)
+    m2.metric("Fully Compliant", compliant, delta="🟢" if compliant > 0 else None)
+    m3.metric("Partially Compliant", partial_compliant, delta="🟡" if partial_compliant > 0 else None)
+    m4.metric("Non-Compliant", non_compliant, delta="🔴" if non_compliant > 0 else None)
+
+    compliance_data = pd.DataFrame({
+        "Status": ["Compliant", "Partially Compliant", "Non-Compliant"],
+        "Count": [compliant, partial_compliant, non_compliant]
+    })
+    fig = px.pie(compliance_data, values="Count", names="Status",
+                 title="PPE Compliance Distribution",
+                 color_discrete_sequence=["green", "yellow", "red"])
+    st.plotly_chart(fig)
+
+    st.markdown("""
+    **Compliance Legend:**
+    - 🟢 Green: All 3 PPE items detected (Hardhat, Mask, Safety Vest)
+    - 🟡 Yellow: 1 or 2 PPE items detected
+    - 🔴 Red: No PPE detected
+    (NOTE: "violation" detections are recorded under each person but do not change status.)
+    """)
+
+    # --- Alerts and Trends ---
+    if non_compliant > 0:
+        st.error(f"⚠️ ALERT: {non_compliant} workers detected without proper PPE!")
+    if partial_compliant > 0:
+        st.warning(f"⚠️ WARNING: {partial_compliant} workers with partial PPE compliance")
+
+    if len(st.session_state["detection_history"]) > 1:
+        st.subheader("📈 Compliance Trends")
+        hist_df = pd.DataFrame(st.session_state["detection_history"])
+        fig_trend = px.line(hist_df, x="timestamp",
+                            y=["compliant", "partial", "non_compliant"],
+                            title="Compliance Trends Over Time")
+        st.plotly_chart(fig_trend)
+
+else:
+    st.info("👆 Please upload an image to begin PPE compliance detection")
