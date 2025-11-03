@@ -15,7 +15,6 @@ import plotly.express as px
 import pandas as pd
 from PIL import Image
 from ultralytics import YOLO
-import random
 
 # --- Environment setup ---
 os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
@@ -28,10 +27,6 @@ MODEL_PATH = BASE_DIR / "Safty.pt"
 # --- Streamlit page setup ---
 st.set_page_config(layout="wide", page_title="PPE Compliance Detection", page_icon="⚠️")
 st.title("👷 PPE Compliance Detection System")
-
-# --- Sidebar options ---
-st.sidebar.header("🧩 Debug Options")
-show_debug_overlay = st.sidebar.toggle("Show PPE-Person Association Debug Overlay", value=False)
 
 # --- Load YOLO model ---
 @st.cache_resource
@@ -123,7 +118,6 @@ if uploaded_file is not None:
 
     # --- Step 1: Exclusive PPE assignment ---
     person_ppe_map = {i: [] for i in range(len(persons))}
-    person_colors = {i: (random.randint(50, 255), random.randint(50, 255), random.randint(50, 255)) for i in range(len(persons))}
 
     for ppe in ppe_items:
         if ppe["class"] in VIOLATION_ITEMS:
@@ -151,14 +145,6 @@ if uploaded_file is not None:
 
         if best_person_idx is not None:
             person_ppe_map[best_person_idx].append(ppe)
-
-            # --- Debug overlay line from PPE to assigned person ---
-            if show_debug_overlay:
-                ppe_x1, ppe_y1, ppe_x2, ppe_y2 = ppe["bbox"]
-                ppe_center = ((ppe_x1 + ppe_x2) // 2, (ppe_y1 + ppe_y2) // 2)
-                px1, py1, px2, py2 = persons[best_person_idx]["bbox"]
-                person_center = ((px1 + px2) // 2, (py1 + py2) // 2)
-                cv2.line(output_image, ppe_center, person_center, person_colors[best_person_idx], 2)
 
     # --- Step 2: Compliance determination per person ---
     for i, person in enumerate(persons):
