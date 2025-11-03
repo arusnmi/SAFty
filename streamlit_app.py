@@ -54,20 +54,9 @@ if model is None:
 # --- Detect PPE and violations from model labels ---
 all_labels = set(model.names.values())
 
-REQUIRED_PPE = {
-    lbl for lbl in all_labels
-    if any(k.lower() in lbl.lower() for k in ["hardhat", "mask", "safety vest", "helmet", "vest"])
-}
-VIOLATION_ITEMS = {
-    lbl for lbl in all_labels
-    if lbl.lower().startswith("no") or "without" in lbl.lower()
-}
-
-# Fallback defaults
-if not REQUIRED_PPE:
-    REQUIRED_PPE = {"Hardhat", "Mask", "Safety Vest"}
-if not VIOLATION_ITEMS:
-    VIOLATION_ITEMS = {"NO-Hardhat", "NO-Mask", "NO-Safety Vest"}
+# Define valid and invalid classes explicitly
+REQUIRED_PPE = {"Hardhat", "Mask", "Safety Vest"}
+VIOLATION_ITEMS = {"NO-Hardhat", "NO-Mask", "NO-Safety Vest"}
 
 # --- Helper functions ---
 def calculate_iou(box1, box2):
@@ -131,7 +120,7 @@ if uploaded_file is not None:
     compliant = partial_compliant = non_compliant = 0
     person_compliance = []
 
-    # --- Per-person compliance logic (Count-based) ---
+    # --- Per-person compliance logic (Count-based, ignores "NO-" classes) ---
     for person in persons:
         person_bbox = person["bbox"]
 
@@ -141,7 +130,7 @@ if uploaded_file is not None:
             if calculate_iou(person_bbox, ppe["bbox"]) > 0.1 or is_nearby(person_bbox, ppe["bbox"])
         ]
 
-        # Count how many valid PPE items (ignore violations)
+        # Count valid PPE items only (ignore "NO-" or violations)
         detected_required = [
             ppe for ppe in associated_ppe if ppe["class"] in REQUIRED_PPE
         ]
@@ -154,7 +143,7 @@ if uploaded_file is not None:
         elif ppe_count in (1, 2):
             status, box_color, compliant_label = "partial", (0, 255, 255), f"{ppe_count}/3"
             partial_compliant += 1
-        else:  # ppe_count == 3 or more
+        else:
             status, box_color, compliant_label = "compliant", (0, 255, 0), "3/3"
             compliant += 1
 
@@ -181,13 +170,9 @@ if uploaded_file is not None:
         x1, y1, x2, y2 = ppe["bbox"]
         cls_name, conf = ppe["class"], ppe["confidence"]
 
-        if "no" in cls_name.lower() or "without" in cls_name.lower():
+        if cls_name in VIOLATION_ITEMS:  # "NO-" items
             color = (0, 0, 255)
-        elif "mask" in cls_name.lower():
-            color = (255, 255, 0)
-        elif "vest" in cls_name.lower():
-            color = (0, 165, 255)
-        elif "helmet" in cls_name.lower() or "hardhat" in cls_name.lower():
+        elif cls_name in REQUIRED_PPE:
             color = (0, 255, 0)
         else:
             color = (255, 255, 255)
@@ -228,7 +213,7 @@ if uploaded_file is not None:
                  color_discrete_sequence=["green", "yellow", "red"])
     st.plotly_chart(fig)
 
-    # --- NEW: Detected valid PPE classes in the frame ---
+    # --- NEW: Detected valid PPE classes in the frame (ignoring "NO-" items) ---
     valid_classes_in_frame = sorted({ppe["class"] for ppe in ppe_items if ppe["class"] in REQUIRED_PPE})
     if valid_classes_in_frame:
         st.subheader("🧾 Detected Valid PPE Classes in Frame:")
