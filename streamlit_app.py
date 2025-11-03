@@ -51,10 +51,7 @@ with st.spinner("Loading AI model..."):
 if model is None:
     st.stop()
 
-# --- Detect PPE and violations from model labels ---
-all_labels = set(model.names.values())
-
-# Define valid and invalid classes explicitly
+# --- Define valid and invalid PPE classes explicitly ---
 REQUIRED_PPE = {"Hardhat", "Mask", "Safety Vest"}
 VIOLATION_ITEMS = {"NO-Hardhat", "NO-Mask", "NO-Safety Vest"}
 
@@ -118,25 +115,43 @@ if uploaded_file is not None:
     ppe_items = [d for d in detections if d["class"] in REQUIRED_PPE or d["class"] in VIOLATION_ITEMS]
 
     compliant = partial_compliant = non_compliant = 0
-    person_compliance = []
 
-    # --- Per-person compliance logic (Count-based, ignores "NO-" classes) ---
-    for person in persons:
+    # --- Step 1: Exclusive PPE assignment ---
+    person_ppe_map = {i: [] for i in range(len(persons))}
+
+    for ppe in ppe_items:
+        if ppe["class"] in VIOLATION_ITEMS:
+            continue  # Skip "NO-" items for compliance assignment
+
+        best_iou, best_person_idx = 0, None
+        for i, person in enumerate(persons):
+            person_bbox = person["bbox"]
+            iou = calculate_iou(person_bbox, ppe["bbox"])
+            if iou > best_iou:
+                best_iou, best_person_idx = iou, i
+
+        # If no strong IoU, assign based on nearest person
+        if best_person_idx is None or best_iou < 0.1:
+            best_distance, best_person_idx = float("inf"), None
+            for i, person in enumerate(persons):
+                if is_nearby(person["bbox"], ppe["bbox"], scale=0.5):
+                    p_x1, p_y1, p_x2, p_y2 = person["bbox"]
+                    ppe_x1, ppe_y1, ppe_x2, ppe_y2 = ppe["bbox"]
+                    p_center = ((p_x1 + p_x2) / 2, (p_y1 + p_y2) / 2)
+                    ppe_center = ((ppe_x1 + ppe_x2) / 2, (ppe_y1 + ppe_y2) / 2)
+                    dist = np.sqrt((p_center[0] - ppe_center[0]) ** 2 + (p_center[1] - ppe_center[1]) ** 2)
+                    if dist < best_distance:
+                        best_distance, best_person_idx = dist, i
+
+        if best_person_idx is not None:
+            person_ppe_map[best_person_idx].append(ppe)
+
+    # --- Step 2: Compliance determination per person ---
+    for i, person in enumerate(persons):
         person_bbox = person["bbox"]
-
-        # PPE items close to this person only
-        associated_ppe = [
-            ppe for ppe in ppe_items
-            if calculate_iou(person_bbox, ppe["bbox"]) > 0.1 or is_nearby(person_bbox, ppe["bbox"])
-        ]
-
-        # Count valid PPE items only (ignore "NO-" or violations)
-        detected_required = [
-            ppe for ppe in associated_ppe if ppe["class"] in REQUIRED_PPE
-        ]
+        detected_required = [p for p in person_ppe_map[i] if p["class"] in REQUIRED_PPE]
         ppe_count = min(len(detected_required), 3)  # cap at 3 max
 
-        # --- Compliance determination ---
         if ppe_count == 0:
             status, box_color, compliant_label = "non_compliant", (0, 0, 255), "0/3"
             non_compliant += 1
@@ -146,14 +161,6 @@ if uploaded_file is not None:
         else:
             status, box_color, compliant_label = "compliant", (0, 255, 0), "3/3"
             compliant += 1
-
-        # Save record
-        person_compliance.append({
-            "bbox": person_bbox,
-            "status": status,
-            "ppe_count": ppe_count,
-            "detected_types": [p["class"] for p in detected_required]
-        })
 
         # Draw bounding box + label
         x1, y1, x2, y2 = person_bbox
@@ -165,12 +172,12 @@ if uploaded_file is not None:
         cv2.putText(output_image, label, (x1, y1 - 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-    # --- Draw PPE boxes ---
+    # --- Step 3: Draw PPE boxes (including NO- items) ---
     for ppe in ppe_items:
         x1, y1, x2, y2 = ppe["bbox"]
         cls_name, conf = ppe["class"], ppe["confidence"]
 
-        if cls_name in VIOLATION_ITEMS:  # "NO-" items
+        if cls_name in VIOLATION_ITEMS:
             color = (0, 0, 255)
         elif cls_name in REQUIRED_PPE:
             color = (0, 255, 0)
@@ -187,7 +194,7 @@ if uploaded_file is not None:
     with col2:
         st.image(output_rgb, caption="Detection Results", use_column_width=True)
 
-    # --- Metrics ---
+    # --- Summary metrics ---
     person_count = len(persons)
     st.session_state["detection_history"].append({
         "total": person_count,
@@ -213,7 +220,7 @@ if uploaded_file is not None:
                  color_discrete_sequence=["green", "yellow", "red"])
     st.plotly_chart(fig)
 
-    # --- NEW: Detected valid PPE classes in the frame (ignoring "NO-" items) ---
+    # --- Detected valid PPE classes in the frame ---
     valid_classes_in_frame = sorted({ppe["class"] for ppe in ppe_items if ppe["class"] in REQUIRED_PPE})
     if valid_classes_in_frame:
         st.subheader("🧾 Detected Valid PPE Classes in Frame:")
@@ -230,7 +237,7 @@ if uploaded_file is not None:
     *(Only valid PPE detections are counted; 'NO-' violation boxes are ignored.)*
     """)
 
-    # --- Alerts and Trends ---
+    # --- Alerts and trends ---
     if non_compliant > 0:
         st.error(f"⚠️ ALERT: {non_compliant} workers detected without PPE!")
     if partial_compliant > 0:
