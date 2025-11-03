@@ -1,4 +1,15 @@
 import os
+
+# --- Auto-disable file watcher on Streamlit Cloud ---
+# Streamlit Cloud sets specific environment variables (like 'STREAMLIT_RUNTIME' or 'STREAMLIT_SERVER_PORT')
+# We'll detect that and turn off the file watcher to prevent the inotify watch limit crash.
+if "STREAMLIT_RUNTIME" in os.environ or os.environ.get("STREAMLIT_SHARING_MODE") == "true":
+    os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
+    print("🔒 Streamlit Cloud detected — file watcher disabled to prevent inotify limit errors.")
+else:
+    print("💻 Running locally — file watcher remains enabled for auto-reload.")
+
+
 from pathlib import Path
 import streamlit as st
 import cv2
