@@ -250,5 +250,11 @@ if uploaded_file is not None:
                             title="Compliance Trends Over Time")
         st.plotly_chart(fig_trend)
 
+    # --- NEW FEATURE: Detected Classes Overview ---
+    st.subheader("📋 Detected Classes")
+    class_counts = pd.Series([d["class"] for d in detections]).value_counts().reset_index()
+    class_counts.columns = ["Class Name", "Count"]
+    st.dataframe(class_counts, use_container_width=True)
+
 else:
     st.info("👆 Please upload an image to begin PPE compliance detection")
