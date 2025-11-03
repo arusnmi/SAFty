@@ -228,12 +228,21 @@ if uploaded_file is not None:
                  color_discrete_sequence=["green", "yellow", "red"])
     st.plotly_chart(fig)
 
+    # --- NEW: Detected valid PPE classes in the frame ---
+    valid_classes_in_frame = sorted({ppe["class"] for ppe in ppe_items if ppe["class"] in REQUIRED_PPE})
+    if valid_classes_in_frame:
+        st.subheader("🧾 Detected Valid PPE Classes in Frame:")
+        st.write(", ".join(valid_classes_in_frame))
+    else:
+        st.subheader("🧾 Detected Valid PPE Classes in Frame:")
+        st.write("No valid PPE items detected.")
+
     st.markdown("""
     **Compliance Legend:**
-    - 🟢 Green: 3 valid PPE items detected near the person
-    - 🟡 Yellow: 1 or 2 valid PPE items detected
-    - 🔴 Red: No PPE detected
-    (Only valid PPE detections are counted; 'NO-' violation boxes are ignored.)
+    - 🟢 Green: 3 valid PPE items detected near the person  
+    - 🟡 Yellow: 1 or 2 valid PPE items detected  
+    - 🔴 Red: No PPE detected  
+    *(Only valid PPE detections are counted; 'NO-' violation boxes are ignored.)*
     """)
 
     # --- Alerts and Trends ---
@@ -249,12 +258,6 @@ if uploaded_file is not None:
                             y=["compliant", "partial", "non_compliant"],
                             title="Compliance Trends Over Time")
         st.plotly_chart(fig_trend)
-
-    # --- NEW FEATURE: Detected Classes Overview ---
-    st.subheader("📋 Detected Classes")
-    class_counts = pd.Series([d["class"] for d in detections]).value_counts().reset_index()
-    class_counts.columns = ["Class Name", "Count"]
-    st.dataframe(class_counts, use_container_width=True)
 
 else:
     st.info("👆 Please upload an image to begin PPE compliance detection")
