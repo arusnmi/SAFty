@@ -131,7 +131,7 @@ if uploaded_file is not None:
     compliant = partial_compliant = non_compliant = 0
     person_compliance = []
 
-    # --- Per-person compliance logic (Final) ---
+    # --- Per-person compliance logic (Count-based) ---
     for person in persons:
         person_bbox = person["bbox"]
 
@@ -141,34 +141,29 @@ if uploaded_file is not None:
             if calculate_iou(person_bbox, ppe["bbox"]) > 0.1 or is_nearby(person_bbox, ppe["bbox"])
         ]
 
-        # Extract valid PPE classes only
-        detected_required = {
-            ppe["class"] for ppe in associated_ppe if ppe["class"] in REQUIRED_PPE
-        }
+        # Count how many valid PPE items (ignore violations)
+        detected_required = [
+            ppe for ppe in associated_ppe if ppe["class"] in REQUIRED_PPE
+        ]
+        ppe_count = min(len(detected_required), 3)  # cap at 3 max
 
-        # --- Determine PPE categories present ---
-        has_helmet = any("hardhat" in c.lower() or "helmet" in c.lower() for c in detected_required)
-        has_vest   = any("vest" in c.lower() for c in detected_required)
-        has_mask   = any("mask" in c.lower() for c in detected_required)
-        ppe_count = sum([has_helmet, has_vest, has_mask])
-
-        # --- Compliance Logic ---
+        # --- Compliance determination ---
         if ppe_count == 0:
             status, box_color, compliant_label = "non_compliant", (0, 0, 255), "0/3"
             non_compliant += 1
         elif ppe_count in (1, 2):
             status, box_color, compliant_label = "partial", (0, 255, 255), f"{ppe_count}/3"
             partial_compliant += 1
-        elif ppe_count == 3:
+        else:  # ppe_count == 3 or more
             status, box_color, compliant_label = "compliant", (0, 255, 0), "3/3"
             compliant += 1
 
-        # Store record
+        # Save record
         person_compliance.append({
             "bbox": person_bbox,
             "status": status,
             "ppe_count": ppe_count,
-            "detected_types": list(detected_required)
+            "detected_types": [p["class"] for p in detected_required]
         })
 
         # Draw bounding box + label
@@ -235,9 +230,10 @@ if uploaded_file is not None:
 
     st.markdown("""
     **Compliance Legend:**
-    - 🟢 Green: All 3 PPE items detected (Hardhat, Mask, Safety Vest)
-    - 🟡 Yellow: 1 or 2 PPE items detected
+    - 🟢 Green: 3 valid PPE items detected near the person
+    - 🟡 Yellow: 1 or 2 valid PPE items detected
     - 🔴 Red: No PPE detected
+    (Only valid PPE detections are counted; 'NO-' violation boxes are ignored.)
     """)
 
     # --- Alerts and Trends ---
