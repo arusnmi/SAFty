@@ -131,7 +131,7 @@ if uploaded_file is not None:
     compliant = partial_compliant = non_compliant = 0
     person_compliance = []
 
-    # --- Per-person compliance logic (FINAL FIXED VERSION) ---
+    # --- Per-person compliance logic (Final) ---
     for person in persons:
         person_bbox = person["bbox"]
 
@@ -141,36 +141,32 @@ if uploaded_file is not None:
             if calculate_iou(person_bbox, ppe["bbox"]) > 0.1 or is_nearby(person_bbox, ppe["bbox"])
         ]
 
-        # Extract classes for valid PPE items (ignore violations)
+        # Extract valid PPE classes only
         detected_required = {
             ppe["class"] for ppe in associated_ppe if ppe["class"] in REQUIRED_PPE
         }
 
-        # --- Count PPE categories (not boxes) ---
+        # --- Determine PPE categories present ---
         has_helmet = any("hardhat" in c.lower() or "helmet" in c.lower() for c in detected_required)
         has_vest   = any("vest" in c.lower() for c in detected_required)
         has_mask   = any("mask" in c.lower() for c in detected_required)
         ppe_count = sum([has_helmet, has_vest, has_mask])
 
-        # --- Compliance determination ---
+        # --- Compliance Logic ---
         if ppe_count == 0:
-            status, box_color = "non_compliant", (0, 0, 255)
-            compliant_label = "0/3"
+            status, box_color, compliant_label = "non_compliant", (0, 0, 255), "0/3"
             non_compliant += 1
         elif ppe_count in (1, 2):
-            status, box_color = "partial", (0, 255, 255)
-            compliant_label = f"{ppe_count}/3"
+            status, box_color, compliant_label = "partial", (0, 255, 255), f"{ppe_count}/3"
             partial_compliant += 1
-        else:
-            status, box_color = "compliant", (0, 255, 0)
-            compliant_label = "3/3"
+        elif ppe_count == 3:
+            status, box_color, compliant_label = "compliant", (0, 255, 0), "3/3"
             compliant += 1
 
-        # Save record for this person
+        # Store record
         person_compliance.append({
             "bbox": person_bbox,
             "status": status,
-            "color": box_color,
             "ppe_count": ppe_count,
             "detected_types": list(detected_required)
         })
@@ -224,9 +220,9 @@ if uploaded_file is not None:
     st.subheader("📊 Compliance Summary")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Total Workers", person_count)
-    m2.metric("Fully Compliant", compliant, delta="🟢" if compliant > 0 else None)
-    m3.metric("Partially Compliant", partial_compliant, delta="🟡" if partial_compliant > 0 else None)
-    m4.metric("Non-Compliant", non_compliant, delta="🔴" if non_compliant > 0 else None)
+    m2.metric("Fully Compliant", compliant)
+    m3.metric("Partially Compliant", partial_compliant)
+    m4.metric("Non-Compliant", non_compliant)
 
     compliance_data = pd.DataFrame({
         "Status": ["Compliant", "Partially Compliant", "Non-Compliant"],
@@ -242,7 +238,6 @@ if uploaded_file is not None:
     - 🟢 Green: All 3 PPE items detected (Hardhat, Mask, Safety Vest)
     - 🟡 Yellow: 1 or 2 PPE items detected
     - 🔴 Red: No PPE detected
-    (Only valid PPE categories are counted; violation labels are ignored.)
     """)
 
     # --- Alerts and Trends ---
